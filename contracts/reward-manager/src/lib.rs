@@ -13,6 +13,27 @@ use crate::xlm_handler::XlmHandler;
 #[contract]
 pub struct RewardManager;
 
+struct ReentrancyGuard {
+    env: Env,
+}
+
+impl ReentrancyGuard {
+    fn acquire(env: &Env) -> Result<Self, RewardErrorCode> {
+        if Storage::is_in_distribution(env) {
+            return Err(RewardErrorCode::ReentrancyDetected);
+        }
+        let env = env.clone();
+        Storage::set_in_distribution(&env, true);
+        Ok(Self { env })
+    }
+}
+
+impl Drop for ReentrancyGuard {
+    fn drop(&mut self) {
+        Storage::set_in_distribution(&self.env, false);
+    }
+}
+
 /// Event emitted when a reward pool is created for a hunt.
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -405,6 +426,8 @@ impl RewardManager {
         if Storage::is_distributed(&env, hunt_id, &player_address) {
             return Err(RewardErrorCode::AlreadyDistributed);
         }
+
+        let _reentrancy_guard = ReentrancyGuard::acquire(&env)?;
 
         let mut xlm_amount = 0i128;
         let mut nft_id: Option<u64> = None;

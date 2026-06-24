@@ -16,6 +16,7 @@ impl Storage {
     const POOL_DST_KEY: soroban_sdk::Symbol = symbol_short!("PDST");
     const HUNTY_CORE_KEY: soroban_sdk::Symbol = symbol_short!("HCORE");
     const TOTAL_XLM_DST_KEY: soroban_sdk::Symbol = symbol_short!("TXDST");
+    const IN_DISTRIBUTION_KEY: soroban_sdk::Symbol = symbol_short!("IN_DIST");
 
     // ========== XLM Token Address ==========
 
@@ -152,6 +153,19 @@ impl Storage {
 
     pub fn get_total_xlm_distributed(env: &Env) -> i128 {
         env.storage().persistent().get(&Self::TOTAL_XLM_DST_KEY).unwrap_or(0)
+    }
+
+    // ========== Reentrancy Guard ==========
+
+    pub fn set_in_distribution(env: &Env, value: bool) {
+        env.storage().persistent().set(&Self::IN_DISTRIBUTION_KEY, &value);
+    }
+
+    pub fn is_in_distribution(env: &Env) -> bool {
+        env.storage()
+            .persistent()
+            .get(&Self::IN_DISTRIBUTION_KEY)
+            .unwrap_or(false)
     }
 
     // ========== Key Helpers ==========

@@ -17,5 +17,8 @@ pub enum RewardErrorCode {
     BelowMinimumAmount = 11,
     AlreadyInitialized = 12,
     HuntNotFound = 13,
-    PoolBalanceDivergence = 14,
+    /// A recursive distribution attempt was detected during an external XLM or NFT call.
+    ReentrancyDetected = 14,
+    /// The tracked pool balance diverged from the actual XLM token balance.
+    PoolBalanceDivergence = 15,
 }
