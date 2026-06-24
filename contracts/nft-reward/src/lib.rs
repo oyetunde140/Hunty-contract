@@ -556,6 +556,62 @@ impl NftReward {
     pub fn rollback_migration(env: Env, admin: Address) -> Option<migration::MigrationReport> {
         migration::NftRewardMigration::rollback_migration(&env, admin)
     }
+
+    /// Searches NFTs by rarity tier.
+    pub fn search_by_rarity(env: Env, rarity: u32) -> Vec<u64> {
+        let all_nft_ids = Storage::get_all_nft_ids(&env);
+        let mut results = Vec::new(&env);
+        for nft_id in all_nft_ids.iter() {
+            if let Some(nft) = Storage::get_nft(&env, nft_id) {
+                if nft.metadata.rarity == rarity {
+                    results.push_back(nft_id);
+                }
+            }
+        }
+        results
+    }
+
+    /// Searches NFTs by tier.
+    pub fn search_by_tier(env: Env, tier: u32) -> Vec<u64> {
+        let all_nft_ids = Storage::get_all_nft_ids(&env);
+        let mut results = Vec::new(&env);
+        for nft_id in all_nft_ids.iter() {
+            if let Some(nft) = Storage::get_nft(&env, nft_id) {
+                if nft.metadata.tier == tier {
+                    results.push_back(nft_id);
+                }
+            }
+        }
+        results
+    }
+
+    /// Searches NFTs by hunt_id.
+    pub fn search_by_hunt_id(env: Env, hunt_id: u64) -> Vec<u64> {
+        let all_nft_ids = Storage::get_all_nft_ids(&env);
+        let mut results = Vec::new(&env);
+        for nft_id in all_nft_ids.iter() {
+            if let Some(nft) = Storage::get_nft(&env, nft_id) {
+                if nft.hunt_id == hunt_id {
+                    results.push_back(nft_id);
+                }
+            }
+        }
+        results
+    }
+
+    /// Searches NFTs by rarity range (inclusive).
+    pub fn search_by_rarity_range(env: Env, min_rarity: u32, max_rarity: u32) -> Vec<u64> {
+        let all_nft_ids = Storage::get_all_nft_ids(&env);
+        let mut results = Vec::new(&env);
+        for nft_id in all_nft_ids.iter() {
+            if let Some(nft) = Storage::get_nft(&env, nft_id) {
+                if nft.metadata.rarity >= min_rarity && nft.metadata.rarity <= max_rarity {
+                    results.push_back(nft_id);
+                }
+            }
+        }
+        results
+    }
 }
 
 #[cfg(test)]

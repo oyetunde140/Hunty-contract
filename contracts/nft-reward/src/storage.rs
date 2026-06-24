@@ -145,6 +145,18 @@ impl Storage {
         env.storage().persistent().set(&exist_key, &());
     }
 
+    /// Returns all minted NFT IDs by iterating from 1 to the current counter.
+    pub fn get_all_nft_ids(env: &Env) -> Vec<u64> {
+        let counter = Self::get_nft_counter(env);
+        let mut ids = Vec::new(env);
+        for id in 1..=counter {
+            if env.storage().persistent().has(&Self::nft_key(id)) {
+                ids.push_back(id);
+            }
+        }
+        ids
+    }
+
     pub fn get_owner_nfts(env: &Env, owner: &Address) -> Vec<u64> {
         let count_key = Self::owner_nft_count_key(owner);
         let count: u32 = env.storage().persistent().get(&count_key).unwrap_or(0);
