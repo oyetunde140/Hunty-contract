@@ -20,11 +20,12 @@ impl Storage {
     const POOL_CFG_KEY: soroban_sdk::Symbol = symbol_short!("PCFG");
     const POOL_DEP_KEY: soroban_sdk::Symbol = symbol_short!("PDEP");
     const POOL_DST_KEY: soroban_sdk::Symbol = symbol_short!("PDST");
+    const TOTAL_XLM_DST_KEY: soroban_sdk::Symbol = symbol_short!("TXLMDST");
     const HUNTY_CORE_KEY: soroban_sdk::Symbol = symbol_short!("HCORE");
     const TOTAL_XLM_DST_KEY: soroban_sdk::Symbol = symbol_short!("TXDST");
     const IN_DISTRIBUTION_KEY: soroban_sdk::Symbol = symbol_short!("IN_DIST");
 
-    // ========== XLM Token Address ==========
+    // ========== Admin ==========
 
     pub fn set_admin(env: &Env, address: &Address) {
         env.storage().persistent().set(&Self::ADMIN_KEY, address);
@@ -33,6 +34,8 @@ impl Storage {
     pub fn get_admin(env: &Env) -> Option<Address> {
         env.storage().persistent().get(&Self::ADMIN_KEY)
     }
+
+    // ========== XLM Token Address ==========
 
     pub fn set_xlm_token(env: &Env, address: &Address) {
         env.storage()
@@ -44,7 +47,7 @@ impl Storage {
         env.storage().persistent().get(&Self::XLM_TOKEN_KEY)
     }
 
-    // ========== HuntyCore Contract Address (optional) ==========
+    // ========== HuntyCore Contract Address ==========
 
     pub fn set_hunty_core(env: &Env, address: &Address) {
         env.storage().persistent().set(&Self::HUNTY_CORE_KEY, address);
@@ -78,7 +81,6 @@ impl Storage {
         env.storage().persistent().get(&key).unwrap_or(false)
     }
 
-    /// Stores the full distribution record (xlm_amount, nft_id) for status queries.
     pub fn set_distribution_record(
         env: &Env,
         hunt_id: u64,
@@ -158,7 +160,10 @@ impl Storage {
     }
 
     pub fn get_total_xlm_distributed(env: &Env) -> i128 {
-        env.storage().persistent().get(&Self::TOTAL_XLM_DST_KEY).unwrap_or(0)
+        env.storage()
+            .persistent()
+            .get(&Self::TOTAL_XLM_DST_KEY)
+            .unwrap_or(0)
     }
 
     // Daily pool cap getters/setters

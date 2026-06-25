@@ -34,6 +34,13 @@ impl Storage {
         (Self::MINTER_KEY, minter.clone())
     }
 
+    fn operator_key(
+        owner: &Address,
+        operator: &Address,
+    ) -> (soroban_sdk::Symbol, Address, Address) {
+        (symbol_short!("OPER"), owner.clone(), operator.clone())
+    }
+
     pub fn remove_nft(env: &Env, nft_id: u64) {
         let key = Self::nft_key(nft_id);
         env.storage().persistent().remove(&key);
@@ -118,8 +125,8 @@ impl Storage {
     pub fn get_max_supply(env: &Env) -> Option<u64> {
         env.storage()
             .persistent()
-            .get(&Self::MAX_SUPPLY_KEY)
-            .unwrap_or(None)
+            .get::<_, Option<u64>>(&Self::MAX_SUPPLY_KEY)
+            .flatten()
     }
 
     pub fn is_initialized(env: &Env) -> bool {
@@ -188,13 +195,6 @@ impl Storage {
     pub fn is_operator(env: &Env, owner: &Address, operator: &Address) -> bool {
         let key = Self::operator_key(owner, operator);
         env.storage().persistent().get(&key).unwrap_or(false)
-    }
-
-    /// Returns the reward manager address (used for cross-contract auth).
-    pub fn get_reward_manager(env: &Env) -> Option<Address> {
-        env.storage()
-            .instance()
-            .get(&symbol_short!("RWMGR"))
     }
 
     // --- Contract version ---

@@ -10,6 +10,17 @@ pub use crate::types::{
 };
 use crate::xlm_handler::XlmHandler;
 
+// Funding validation constants
+// 1 XLM = 10_000_000 stroops (Stellar's base unit)
+/// Minimum funding amount: 1 XLM (prevents dust attacks)
+const MIN_FUNDING_AMOUNT: i128 = 10_000_000;
+
+/// Maximum single funding amount: 1 billion XLM (prevents overflow and unreasonable deposits)
+const MAX_FUNDING_AMOUNT: i128 = 1_000_000_000 * 10_000_000;
+
+/// Maximum pool balance: 1 billion XLM (prevents overflow)
+const MAX_POOL_BALANCE: i128 = 1_000_000_000 * 10_000_000;
+
 #[contract]
 pub struct RewardManager;
 
@@ -141,7 +152,7 @@ impl RewardManager {
         
         // Emit the event
         env.events().publish(
-            symbol_short!("NFT_SET"),
+            (symbol_short!("NFT_SET"),),
             NftContractSetEvent {
                 old_contract,
                 new_contract: nft_contract,
@@ -280,6 +291,12 @@ impl RewardManager {
     /// Only the original pool creator is authorized to fund it.
     /// Transfers XLM from the funder to this contract and records the balance.
     ///
+    /// # Validation
+    /// - Minimum funding: 1 XLM (10,000,000 stroops) to prevent dust attacks
+    /// - Maximum single funding: 1 billion XLM to prevent overflow
+    /// - Pool balance limit: 1 billion XLM total to prevent overflow
+    /// - Rejects zero or negative amounts
+    ///
     /// # Arguments
     /// * `funder` - The address funding the pool (must be the pool creator)
     /// * `hunt_id` - The hunt to fund
@@ -289,6 +306,9 @@ impl RewardManager {
     /// * `PoolNotFound` - Pool has not been created yet
     /// * `Unauthorized` - Funder is not the pool creator
     /// * `InvalidAmount` - Amount is <= 0
+    /// * `BelowMinimumFunding` - Amount is less than 1 XLM (dust attack prevention)
+    /// * `ExceedsMaximumFunding` - Amount exceeds 1 billion XLM
+    /// * `PoolBalanceOverflow` - Adding this amount would exceed pool balance limit
     /// * `NotInitialized` - XLM token address not set
     pub fn fund_reward_pool(
         env: Env,
@@ -299,6 +319,16 @@ impl RewardManager {
 
         if amount <= 0 {
             return Err(RewardErrorCode::InvalidAmount);
+        }
+
+        // Validate minimum funding amount (1 XLM) to prevent dust attacks
+        if amount < MIN_FUNDING_AMOUNT {
+            return Err(RewardErrorCode::BelowMinimumFunding);
+        }
+
+        // Validate maximum single funding amount to prevent overflow
+        if amount > MAX_FUNDING_AMOUNT {
+            return Err(RewardErrorCode::ExceedsMaximumFunding);
         }
 
         let pool_config =
@@ -313,17 +343,27 @@ impl RewardManager {
         let xlm_token = Storage::get_xlm_token(&env)
             .ok_or(RewardErrorCode::NotInitialized)?;
 
+        // Check for overflow before adding to pool balance
+        let current = Storage::get_pool_balance(&env, hunt_id);
+        let new_balance = current.checked_add(amount)
+            .ok_or(RewardErrorCode::PoolBalanceOverflow)?;
+        
+        // Validate the new balance doesn't exceed maximum pool balance
+        if new_balance > MAX_POOL_BALANCE {
+            return Err(RewardErrorCode::PoolBalanceOverflow);
+        }
+
         // Transfer XLM from funder to this contract
         let contract_addr = env.current_contract_address();
         let client = soroban_sdk::token::Client::new(&env, &xlm_token);
         client.transfer(&funder, &contract_addr, &amount);
 
         // Update pool balance and cumulative deposit total
-        let current = Storage::get_pool_balance(&env, hunt_id);
-        let new_balance = current + amount;
         Storage::set_pool_balance(&env, hunt_id, new_balance);
 
-        let total_deposited = Storage::get_pool_total_deposited(&env, hunt_id) + amount;
+        let total_deposited = Storage::get_pool_total_deposited(&env, hunt_id)
+            .checked_add(amount)
+            .ok_or(RewardErrorCode::PoolBalanceOverflow)?;
         Storage::set_pool_total_deposited(&env, hunt_id, total_deposited);
 
         env.events().publish(
@@ -709,7 +749,6 @@ impl RewardManager {
 
     /// Returns true if the given NftReward contract meets the minimum required version.
     pub fn check_nft_reward_compatibility(env: Env, nft_reward_address: Address) -> bool {
-        use soroban_sdk::IntoVal;
         let ver: u32 = env.invoke_contract(
             &nft_reward_address,
             &soroban_sdk::Symbol::new(&env, "contract_version"),
