@@ -1,6 +1,9 @@
 # Rust's output directory
 target
 
+temp_auto_push.bat
 # Local settings
 .soroban
 .stellar
+.gitignore
+branch_structure.json
