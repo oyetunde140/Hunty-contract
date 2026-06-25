@@ -43,7 +43,7 @@ impl Storage {
         owner: &Address,
         operator: &Address,
     ) -> (soroban_sdk::Symbol, Address, Address) {
-        (symbol_short!("OPRT"), owner.clone(), operator.clone())
+        (symbol_short!("OPER"), owner.clone(), operator.clone())
     }
 
     pub fn remove_nft(env: &Env, nft_id: u64) {
@@ -150,8 +150,8 @@ impl Storage {
     pub fn get_max_supply(env: &Env) -> Option<u64> {
         env.storage()
             .persistent()
-            .get(&Self::MAX_SUPPLY_KEY)
-            .unwrap_or(None)
+            .get::<_, Option<u64>>(&Self::MAX_SUPPLY_KEY)
+            .flatten()
     }
 
     pub fn is_initialized(env: &Env) -> bool {

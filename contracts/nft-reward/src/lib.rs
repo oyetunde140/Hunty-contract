@@ -32,6 +32,39 @@ fn image_uri_is_valid(_uri: &String) -> bool {
     true
 }
 
+fn string_to_bytes<const N: usize>(value: &String) -> Option<([u8; N], usize)> {
+    let len = value.len() as usize;
+    if len > N {
+        return None;
+    }
+
+    let mut buf = [0u8; N];
+    value.copy_into_slice(&mut buf[..len]);
+    Some((buf, len))
+}
+
+fn replace_prefix(env: &Env, value: &String, old_prefix: &String, new_prefix: &String) -> Option<String> {
+    let (value_buf, value_len) = string_to_bytes::<4096>(value)?;
+    let (old_buf, old_len) = string_to_bytes::<4096>(old_prefix)?;
+    let (new_buf, new_len) = string_to_bytes::<4096>(new_prefix)?;
+
+    if value_len < old_len || value_buf[..old_len] != old_buf[..old_len] {
+        return None;
+    }
+
+    let suffix_len = value_len - old_len;
+    let total_len = new_len + suffix_len;
+    if total_len > 4096 {
+        return None;
+    }
+
+    let mut out = [0u8; 4096];
+    out[..new_len].copy_from_slice(&new_buf[..new_len]);
+    out[new_len..total_len].copy_from_slice(&value_buf[old_len..value_len]);
+    let updated = core::str::from_utf8(&out[..total_len]).ok()?;
+    Some(String::from_str(env, updated))
+}
+
 /// Complete metadata returned by get_nft_metadata (includes NftData-derived fields).
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -67,6 +100,7 @@ pub struct NftData {
     pub metadata: NftMetadata,
     pub transferable: bool,
     pub minted_at: u64,
+    pub locked: bool,
 }
 
 /// Event emitted when an NFT is minted.
@@ -108,7 +142,7 @@ pub struct AdminImageUrisUpdatedEvent {
     pub updated_count: u32,
 }
 
-/// Event emitted when an operator is granted or revoked.
+/// Event emitted when an owner changes operator approval.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct OperatorChangedEvent {
@@ -122,6 +156,8 @@ pub use errors::NftErrorCode;
 mod migration;
 mod storage;
 use storage::Storage;
+
+const CONTRACT_VERSION: u32 = 1;
 
 #[contract]
 pub struct NftReward;
@@ -146,7 +182,7 @@ impl NftReward {
         admin.require_auth();
         Storage::save_admin(&env, &admin);
         Storage::set_max_supply(&env, max_supply);
-        Storage::set_contract_version(&env, Self::CONTRACT_VERSION);
+        Storage::set_contract_version(&env, CONTRACT_VERSION);
         Ok(())
     }
 
@@ -230,7 +266,7 @@ impl NftReward {
             .unwrap_or_else(|| String::from_str(&env, ""));
 
         if !image_uri_is_valid(&image_uri) {
-            panic!("Invalid NFT image_uri: must be non-empty and start with https:// or ipfs://");
+            panic!("Invalid NFT image_uri: must be non-empty");
         }
 
         let hunt_title = metadata
@@ -308,6 +344,7 @@ impl NftReward {
             metadata: metadata.clone(),
             transferable,
             minted_at,
+            locked: false,
         };
 
         Storage::save_nft(&env, &nft_data);
@@ -398,36 +435,15 @@ impl NftReward {
 
         for nft_id in 1..=total {
             if let Some(mut nft) = Storage::get_nft(&env, nft_id) {
-                let uri = nft.metadata.image_uri.clone();
-
-                let uri_len = uri.len() as usize;
-                let prefix_len = old_prefix.len() as usize;
-
-                if uri_len >= prefix_len
-                    && uri_len <= MAX_URI_LEN
-                    && prefix_len <= MAX_URI_LEN
-                {
-                    let mut uri_buf = [0u8; MAX_URI_LEN];
-                    let mut prefix_buf = [0u8; MAX_URI_LEN];
-
-                    uri.copy_into_slice(&mut uri_buf[..uri_len]);
-                    old_prefix.copy_into_slice(&mut prefix_buf[..prefix_len]);
-
-                    if &uri_buf[..prefix_len] == &prefix_buf[..prefix_len] {
-                        let suffix = &uri_buf[prefix_len..uri_len];
-                        let suffix_len = suffix.len();
-                        let new_prefix_len = new_prefix.len() as usize;
-                        if new_prefix_len + suffix_len <= MAX_URI_LEN {
-                            let mut new_uri_buf = [0u8; MAX_URI_LEN];
-                            new_prefix.copy_into_slice(&mut new_uri_buf[..new_prefix_len]);
-                            let end = new_prefix_len + suffix_len;
-                            new_uri_buf[new_prefix_len..end].copy_from_slice(suffix);
-                            nft.metadata.image_uri =
-                                String::from_bytes(&env, &new_uri_buf[..end]);
-                            Storage::save_nft(&env, &nft);
-                            updated += 1;
-                        }
-                    }
+                if let Some(new_uri) = replace_prefix(
+                    &env,
+                    &nft.metadata.image_uri,
+                    &old_prefix,
+                    &new_prefix,
+                ) {
+                    nft.metadata.image_uri = new_uri;
+                    Storage::save_nft(&env, &nft);
+                    updated += 1;
                 }
             }
         }
@@ -626,6 +642,10 @@ impl NftReward {
             return Err(crate::errors::NftErrorCode::SoulboundNft);
         }
 
+        if nft.locked {
+            return Err(crate::errors::NftErrorCode::NftLocked);
+        }
+
         let count_key = (symbol_short!("ONFC"), from_address.clone());
         let count: u32 = env.storage().persistent().get(&count_key).unwrap_or(0);
         let exist_key = (symbol_short!("ONFX"), from_address.clone(), nft_id);
@@ -676,7 +696,7 @@ impl NftReward {
 
     /// Returns the on-chain version stored during initialize, or the compiled constant.
     pub fn contract_version(env: Env) -> u32 {
-        Storage::get_contract_version(&env).unwrap_or(Self::CONTRACT_VERSION)
+        Storage::get_contract_version(&env).unwrap_or(CONTRACT_VERSION)
     }
 
     /// Grants `operator` the ability to manage all NFTs owned by `owner`.
@@ -787,6 +807,130 @@ impl NftReward {
             }
         }
         results
+    }
+
+    /// Locks an NFT to prevent transfers. Only authorized contracts can lock NFTs.
+    ///
+    /// # Arguments
+    /// * `nft_id` - The NFT to lock
+    /// * `locker` - The authorized contract locking the NFT (must be whitelisted)
+    ///
+    /// # Authorization
+    /// The `locker` must be an authorized locker contract and must authorize this call.
+    pub fn lock_nft(
+        env: Env,
+        nft_id: u64,
+        locker: Address,
+    ) -> Result<(), crate::errors::NftErrorCode> {
+        locker.require_auth();
+
+        if !Storage::is_locker(&env, &locker) {
+            return Err(crate::errors::NftErrorCode::Unauthorized);
+        }
+
+        let mut nft = Storage::get_nft(&env, nft_id)
+            .ok_or(crate::errors::NftErrorCode::NftNotFound)?;
+
+        nft.locked = true;
+        Storage::save_nft(&env, &nft);
+
+        env.events().publish(
+            (Symbol::new(&env, "NftLocked"), nft_id),
+            (nft_id, locker),
+        );
+
+        Ok(())
+    }
+
+    /// Unlocks an NFT to allow transfers. Only authorized contracts can unlock NFTs.
+    ///
+    /// # Arguments
+    /// * `nft_id` - The NFT to unlock
+    /// * `locker` - The authorized contract unlocking the NFT (must be whitelisted)
+    ///
+    /// # Authorization
+    /// The `locker` must be an authorized locker contract and must authorize this call.
+    pub fn unlock_nft(
+        env: Env,
+        nft_id: u64,
+        locker: Address,
+    ) -> Result<(), crate::errors::NftErrorCode> {
+        locker.require_auth();
+
+        if !Storage::is_locker(&env, &locker) {
+            return Err(crate::errors::NftErrorCode::Unauthorized);
+        }
+
+        let mut nft = Storage::get_nft(&env, nft_id)
+            .ok_or(crate::errors::NftErrorCode::NftNotFound)?;
+
+        nft.locked = false;
+        Storage::save_nft(&env, &nft);
+
+        env.events().publish(
+            (Symbol::new(&env, "NftUnlocked"), nft_id),
+            (nft_id, locker),
+        );
+
+        Ok(())
+    }
+
+    /// Adds an authorized locker contract. Admin only.
+    ///
+    /// # Arguments
+    /// * `admin` - The admin address (must authorize)
+    /// * `locker` - The contract address to authorize for locking/unlocking NFTs
+    pub fn add_locker(
+        env: Env,
+        admin: Address,
+        locker: Address,
+    ) -> Result<(), crate::errors::NftErrorCode> {
+        admin.require_auth();
+
+        let stored_admin = Storage::get_admin(&env)
+            .ok_or(crate::errors::NftErrorCode::Unauthorized)?;
+
+        if admin != stored_admin {
+            return Err(crate::errors::NftErrorCode::Unauthorized);
+        }
+
+        Storage::add_locker(&env, &locker);
+
+        env.events().publish(
+            (Symbol::new(&env, "LockerAdded"),),
+            locker,
+        );
+
+        Ok(())
+    }
+
+    /// Removes an authorized locker contract. Admin only.
+    ///
+    /// # Arguments
+    /// * `admin` - The admin address (must authorize)
+    /// * `locker` - The contract address to remove authorization from
+    pub fn remove_locker(
+        env: Env,
+        admin: Address,
+        locker: Address,
+    ) -> Result<(), crate::errors::NftErrorCode> {
+        admin.require_auth();
+
+        let stored_admin = Storage::get_admin(&env)
+            .ok_or(crate::errors::NftErrorCode::Unauthorized)?;
+
+        if admin != stored_admin {
+            return Err(crate::errors::NftErrorCode::Unauthorized);
+        }
+
+        Storage::remove_locker(&env, &locker);
+
+        env.events().publish(
+            (Symbol::new(&env, "LockerRemoved"),),
+            locker,
+        );
+
+        Ok(())
     }
 }
 

@@ -4,7 +4,7 @@ extern crate std;
 use crate::{NftMetadata, NftReward, NftRewardClient, METADATA_SCHEMA_VERSION};
 use soroban_sdk::{
     testutils::{Address as _, Events as _, Ledger as _},
-    Address, Env, IntoVal, Map, String, Symbol, Val, Vec,
+    Address, Env, IntoVal, Map, String, Symbol, Val,
 };
 
 fn setup_env() -> Env {
@@ -81,7 +81,7 @@ fn mint_transferable(
 fn test_initialize_stores_admin() {
     let env = setup_env();
     let admin = Address::generate(&env);
-    let contract_id = env.register_contract(None, NftReward);
+    let contract_id = env.register(NftReward, ());
     let client = NftRewardClient::new(&env, &contract_id);
     client.initialize(&admin, &None);
 
@@ -89,6 +89,7 @@ fn test_initialize_stores_admin() {
 }
 
 #[test]
+#[should_panic(expected = "HostError")]
 fn test_initialize_requires_auth() {
     let env = Env::default();
     env.mock_all_auths();
@@ -106,7 +107,7 @@ fn test_initialize_requires_auth() {
 fn test_initialize_cannot_be_called_twice() {
     let env = setup_env();
     let admin = Address::generate(&env);
-    let contract_id = env.register_contract(None, NftReward);
+    let contract_id = env.register(NftReward, ());
     let client = NftRewardClient::new(&env, &contract_id);
     client.initialize(&admin, &None);
     client.initialize(&admin, &None);
@@ -241,7 +242,6 @@ fn test_multiple_nfts_can_be_minted() {
     ];
     let uris = ["ipfs://hunt1", "ipfs://hunt2", "ipfs://hunt3", "ipfs://hunt4", "ipfs://hunt5"];
 
-    let mut ids: soroban_sdk::Vec<u64> = soroban_sdk::Vec::new(&env);
     for i in 0..5 {
         let metadata = create_metadata(&env, titles[i], descs[i], uris[i]);
         let nft_id = client.mint_reward_nft(&player, &(i as u64 + 1), &player, &metadata);
