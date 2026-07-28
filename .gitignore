@@ -8,6 +8,7 @@ target
 # Claude Code worktrees
 .claude/worktrees/
 
+temp_auto_push.bat
 node_modules/
 dist/
 
@@ -18,4 +19,5 @@ dist/
 !.env.example
 !.env.*.example
 
-*.log
+*.log.gitignore
+branch_structure.json
